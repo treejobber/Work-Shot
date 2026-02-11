@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "_example",
+  "createdAt": "2026-02-10T00:00:00.000Z",
+  "source": {
+    "type": "manual",
+    "sourceRef": null,
+    "messageId": null,
+    "threadId": null
+  },
+  "customer": {
+    "name": null,
+    "phone": null,
+    "address": null
+  },
+  "businessOwner": {
+    "phone": null
+  },
+  "work": {
+    "service": "tree trim",
+    "notes": "Example only"
+  },
+  "targets": {
+    "platforms": ["generic"],
+    "publish": false
+  },
+  "media": {
+    "pairs": [
+      {
+        "pairId": "primary",
+        "before": "before.png",
+        "after": "after.png",
+        "mediaType": "photo"
+      }
+    ]
+  }
+}

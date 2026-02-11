@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # Blocking gate: install
+      - name: Install dependencies
+        run: npm ci
+
+      # Blocking gate: build
+      - name: Build
+        run: npm run build
+
+      # Blocking gate: Tier-1 tests (structural determinism + all integration)
+      - name: Test (Tier-1 blocking)
+        run: npm test
+
+      # Non-blocking diagnostic: Tier-2 byte-level determinism
+      # This may fail on different OS/libvips builds — that's expected.
+      # Re-baseline by running on the pinned environment after sharp upgrades.
+      - name: Tier-2 determinism diagnostic
+        continue-on-error: true
+        run: |
+          echo "--- Tier-2 byte-level determinism check ---"
+          echo "Environment: $(node -v) / $(uname -s) / sharp $(node -e \"console.log(require('sharp').versions.vips)\")"
+          npm test -- --reporter=verbose tests/determinism.test.ts
