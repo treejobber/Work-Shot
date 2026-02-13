@@ -45,6 +45,8 @@ Requires `workshot run` to have completed first (`output/manifest.json` must exi
 - `caption.txt` — platform-appropriate caption
 - `manifest.json` — per-platform output manifest referencing the R1 manifest
 
+**Smart crop (optional):** If `GEMINI_API_KEY` is set in `.env`, the social command uses Gemini vision to find optimal crop regions that keep the main subject (tree/work area) well-framed. Without the key, images are center-cropped (deterministic fallback). Smart crop also falls back to center-crop on any API error or timeout.
+
 ### Job folder structure
 
 ```

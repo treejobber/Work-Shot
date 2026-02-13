@@ -10,6 +10,7 @@
 import * as path from "path";
 import sharp from "sharp";
 import type { PlatformSpec } from "./types";
+import type { SmartCropResult } from "./smartCrop";
 import { createLabelSvg } from "../lib/labels";
 
 /** Logo sizing: width as fraction of final image width */
@@ -32,7 +33,8 @@ export async function composeSocialImage(
   beforePath: string,
   afterPath: string,
   outputPath: string,
-  spec: PlatformSpec
+  spec: PlatformSpec,
+  smartCrop?: SmartCropResult | null
 ): Promise<{ width: number; height: number; sizeBytes: number }> {
   const { width: targetWidth, height: targetHeight, format, quality } = spec.imageSpec;
 
@@ -47,14 +49,31 @@ export async function composeSocialImage(
     panelHeight = Math.floor(targetHeight / 2);
   }
 
-  // Resize + center-crop each image to fill the panel exactly
-  const beforeBuffer = await sharp(beforePath)
-    .resize(panelWidth, panelHeight, { fit: "cover", position: "centre" })
-    .toBuffer();
+  // Crop each image to fill the panel exactly.
+  // Smart-crop: extract region then resize to panel (Gemini-chosen subject framing).
+  // Center-crop fallback: resize with cover fit (sharp's built-in center crop).
+  let beforeBuffer: Buffer;
+  let afterBuffer: Buffer;
 
-  const afterBuffer = await sharp(afterPath)
-    .resize(panelWidth, panelHeight, { fit: "cover", position: "centre" })
-    .toBuffer();
+  if (smartCrop) {
+    beforeBuffer = await sharp(beforePath)
+      .extract(smartCrop.before)
+      .resize(panelWidth, panelHeight)
+      .toBuffer();
+
+    afterBuffer = await sharp(afterPath)
+      .extract(smartCrop.after)
+      .resize(panelWidth, panelHeight)
+      .toBuffer();
+  } else {
+    beforeBuffer = await sharp(beforePath)
+      .resize(panelWidth, panelHeight, { fit: "cover", position: "centre" })
+      .toBuffer();
+
+    afterBuffer = await sharp(afterPath)
+      .resize(panelWidth, panelHeight, { fit: "cover", position: "centre" })
+      .toBuffer();
+  }
 
   // Create label overlays
   const beforeLabel = createLabelSvg("BEFORE", panelWidth, panelHeight);

@@ -14,6 +14,7 @@ import type { SocialOutput } from "./types";
 import { getAdapter, getAvailablePlatforms } from "./registry";
 import { composeSocialImage } from "./composer";
 import { generateSocialCaption } from "./captionWriter";
+import { getSmartCrop } from "./smartCrop";
 
 export { getAvailablePlatforms };
 
@@ -141,6 +142,16 @@ export async function runSocial(
     assertResolvedContainedIn(platformDir, resolvedJobDir, `Platform directory (${spec.name})`);
     fs.mkdirSync(platformDir, { recursive: true });
 
+    // Attempt smart-crop (returns null if unavailable/fails — composer uses center-crop)
+    const panelWidth = spec.layout === "side-by-side"
+      ? Math.floor(spec.imageSpec.width / 2)
+      : spec.imageSpec.width;
+    const panelHeight = spec.layout === "side-by-side"
+      ? spec.imageSpec.height
+      : Math.floor(spec.imageSpec.height / 2);
+
+    const smartCrop = await getSmartCrop(beforePath, afterPath, panelWidth, panelHeight);
+
     // Compose image
     const ext = spec.imageSpec.format === "jpeg" ? "jpg" : "png";
     const imagePath = path.join(platformDir, `image.${ext}`);
@@ -148,7 +159,8 @@ export async function runSocial(
       beforePath,
       afterPath,
       imagePath,
-      spec
+      spec,
+      smartCrop
     );
 
     // Generate caption
