@@ -8,11 +8,13 @@
 
 import type { PlatformAdapter } from "./types";
 import { createNextdoorAdapter } from "./platforms/nextdoor";
+import { createFacebookAdapter } from "./platforms/facebook";
 
 type AdapterFactory = () => PlatformAdapter;
 
 const REGISTRY: Record<string, AdapterFactory> = {
   nextdoor: createNextdoorAdapter,
+  facebook: createFacebookAdapter,
 };
 
 export function getAdapter(platform: string): PlatformAdapter {

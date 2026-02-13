@@ -67,10 +67,16 @@ describe("platform registry", () => {
     expect(() => getAdapter("myspace")).toThrow(/Unknown platform "myspace"/);
   });
 
+  it("returns facebook adapter", () => {
+    const adapter = getAdapter("facebook");
+    expect(adapter.spec.name).toBe("facebook");
+  });
+
   it("lists available platforms", () => {
     const platforms = getAvailablePlatforms();
     expect(platforms).toContain("nextdoor");
-    expect(platforms.length).toBeGreaterThanOrEqual(1);
+    expect(platforms).toContain("facebook");
+    expect(platforms.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -96,6 +102,36 @@ describe("nextdoor adapter spec", () => {
 
   it("layout is side-by-side", () => {
     expect(spec.layout).toBe("side-by-side");
+  });
+
+  it("caption max is 8192, no hashtags", () => {
+    expect(spec.captionSpec.maxLength).toBe(8192);
+    expect(spec.captionSpec.hashtags).toBe("none");
+  });
+});
+
+// ---- Facebook Adapter ----
+
+describe("facebook adapter spec", () => {
+  const adapter = getAdapter("facebook");
+  const spec = adapter.spec;
+
+  it("image is 1080x1350", () => {
+    expect(spec.imageSpec.width).toBe(1080);
+    expect(spec.imageSpec.height).toBe(1350);
+  });
+
+  it("format is JPEG quality 90", () => {
+    expect(spec.imageSpec.format).toBe("jpeg");
+    expect(spec.imageSpec.quality).toBe(90);
+  });
+
+  it("max file size is 10MB", () => {
+    expect(spec.imageSpec.maxFileSizeBytes).toBe(10 * 1024 * 1024);
+  });
+
+  it("layout is stacked", () => {
+    expect(spec.layout).toBe("stacked");
   });
 
   it("caption max is 8192, no hashtags", () => {
@@ -179,11 +215,43 @@ describe("social composer", () => {
     );
     expect(result.sizeBytes).toBeLessThan(10 * 1024 * 1024);
   });
+
+  it("produces 1080x1350 JPEG for facebook (stacked)", async () => {
+    const adapter = getAdapter("facebook");
+    const outputPath = path.join(jobDir, "test-facebook.jpg");
+    const result = await composeSocialImage(
+      beforePath,
+      afterPath,
+      outputPath,
+      adapter.spec
+    );
+
+    expect(result.width).toBe(1080);
+    expect(result.height).toBe(1350);
+
+    const meta = await sharp(outputPath).metadata();
+    expect(meta.width).toBe(1080);
+    expect(meta.height).toBe(1350);
+    expect(meta.format).toBe("jpeg");
+  });
+
+  it("facebook output is under 10MB", async () => {
+    const adapter = getAdapter("facebook");
+    const outputPath = path.join(jobDir, "test-facebook-size.jpg");
+    const result = await composeSocialImage(
+      beforePath,
+      afterPath,
+      outputPath,
+      adapter.spec
+    );
+    expect(result.sizeBytes).toBeLessThan(10 * 1024 * 1024);
+  });
 });
 
 // ---- Caption Writer ----
 
 describe("social caption writer", () => {
+  const facebookSpec = getAdapter("facebook").spec;
   const nextdoorSpec = getAdapter("nextdoor").spec;
 
   it("generates caption with service name", () => {
@@ -210,6 +278,19 @@ describe("social caption writer", () => {
       nextdoorSpec
     );
     expect(caption.length).toBeLessThanOrEqual(nextdoorSpec.captionSpec.maxLength);
+  });
+
+  it("facebook caption is under 8192 chars", () => {
+    const caption = generateSocialCaption(
+      { service: "tree trim", notes: "A".repeat(10000) },
+      facebookSpec
+    );
+    expect(caption.length).toBeLessThanOrEqual(facebookSpec.captionSpec.maxLength);
+  });
+
+  it("facebook caption contains service name", () => {
+    const caption = generateSocialCaption({ service: "stump grinding" }, facebookSpec);
+    expect(caption).toContain("stump grinding");
   });
 });
 
@@ -295,6 +376,68 @@ describe("runSocial integration", () => {
   it("R1 caption.generic.txt unchanged", () => {
     const currentHash = sha256(path.join(jobDir, "output", "caption.generic.txt"));
     expect(currentHash).toBe(r1CaptionHash);
+  });
+
+  it("produces facebook outputs", async () => {
+    const results = await runSocial(jobDir, ["facebook"]);
+    expect(results).toHaveLength(1);
+    expect(results[0].platform).toBe("facebook");
+  });
+
+  it("creates image.jpg in output/social/facebook/", () => {
+    const imagePath = path.join(jobDir, "output", "social", "facebook", "image.jpg");
+    expect(fs.existsSync(imagePath)).toBe(true);
+  });
+
+  it("creates caption.txt in output/social/facebook/", () => {
+    const captionPath = path.join(jobDir, "output", "social", "facebook", "caption.txt");
+    expect(fs.existsSync(captionPath)).toBe(true);
+    const caption = fs.readFileSync(captionPath, "utf-8");
+    expect(caption).toContain("tree trim");
+    expect(caption.length).toBeLessThanOrEqual(8192);
+  });
+
+  it("facebook image is 1080x1350 JPEG (stacked)", async () => {
+    const imagePath = path.join(jobDir, "output", "social", "facebook", "image.jpg");
+    const meta = await sharp(imagePath).metadata();
+    expect(meta.width).toBe(1080);
+    expect(meta.height).toBe(1350);
+    expect(meta.format).toBe("jpeg");
+  });
+
+  it("facebook image is under 10MB", () => {
+    const imagePath = path.join(jobDir, "output", "social", "facebook", "image.jpg");
+    const stat = fs.statSync(imagePath);
+    expect(stat.size).toBeLessThan(10 * 1024 * 1024);
+  });
+
+  it("facebook manifest has correct schema", () => {
+    const manifestPath = path.join(jobDir, "output", "social", "facebook", "manifest.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    expect(manifest.schemaVersion).toBe("1.0");
+    expect(manifest.platform).toBe("facebook");
+    expect(manifest.image.path).toBe("image.jpg");
+    expect(manifest.image.width).toBe(1080);
+    expect(manifest.image.height).toBe(1350);
+    expect(manifest.image.format).toBe("jpeg");
+    expect(manifest.image.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(manifest.caption.path).toBe("caption.txt");
+    expect(manifest.caption.charCount).toBeGreaterThan(0);
+  });
+
+  it("facebook manifest SHA256 matches actual file", () => {
+    const manifestPath = path.join(jobDir, "output", "social", "facebook", "manifest.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    const imagePath = path.join(jobDir, "output", "social", "facebook", "image.jpg");
+    const actualHash = sha256(imagePath);
+    expect(manifest.image.sha256).toBe(actualHash);
+  });
+
+  it("produces both platforms with --all equivalent", async () => {
+    const results = await runSocial(jobDir, ["nextdoor", "facebook"]);
+    expect(results).toHaveLength(2);
+    const platforms = results.map(r => r.platform).sort();
+    expect(platforms).toEqual(["facebook", "nextdoor"]);
   });
 
   it("throws when R1 has not been run", async () => {
@@ -457,6 +600,19 @@ describe("social CLI subprocess", () => {
     const result = await run(["social", jobDir, "--platform", "nextdoor"]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("nextdoor");
+  }, 30000);
+
+  it("workshot social --platform facebook succeeds", async () => {
+    const result = await run(["social", jobDir, "--platform", "facebook"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("facebook");
+  }, 30000);
+
+  it("workshot social --all produces both platforms", async () => {
+    const result = await run(["social", jobDir, "--all"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("nextdoor");
+    expect(result.stdout).toContain("facebook");
   }, 30000);
 
   it("workshot social without --platform or --all fails", async () => {

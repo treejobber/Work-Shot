@@ -41,7 +41,7 @@ node dist/index.js social <job_dir> --platform nextdoor [--platform facebook] [-
 ```
 
 Requires `workshot run` to have completed first (`output/manifest.json` must exist). Generates platform-optimized image, caption, and manifest in `<job_dir>/output/social/<platform>/`:
-- `image.jpg` — platform-sized composite (Nextdoor: 1200x675, JPEG q90)
+- `image.jpg` — platform-sized composite (Nextdoor: 1200x675 side-by-side, Facebook: 1080x1350 stacked, JPEG q90)
 - `caption.txt` — platform-appropriate caption
 - `manifest.json` — per-platform output manifest referencing the R1 manifest
 
