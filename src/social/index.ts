@@ -15,6 +15,7 @@ import { getAdapter, getAvailablePlatforms } from "./registry";
 import { composeSocialImage } from "./composer";
 import { generateSocialCaption } from "./captionWriter";
 import { getSmartCrop } from "./smartCrop";
+import { generateCrossfadeGif } from "./crossfade";
 
 export { getAvailablePlatforms };
 
@@ -51,6 +52,15 @@ interface SocialManifest {
   caption: {
     path: string;
     charCount: number;
+  };
+  transition?: {
+    path: string;
+    sizeBytes: number;
+    frameCount: number;
+    durationMs: number;
+    width: number;
+    height: number;
+    sha256: string;
   };
 }
 
@@ -168,6 +178,35 @@ export async function runSocial(
     const captionPath = path.join(platformDir, "caption.txt");
     fs.writeFileSync(captionPath, caption, "utf-8");
 
+    // Attempt crossfade GIF (only if WORKSHOT_SOCIAL_GIF=1)
+    let transitionData: SocialManifest["transition"] | undefined;
+    let transitionOutput: SocialOutput["transition"] | undefined;
+
+    if (process.env.WORKSHOT_SOCIAL_GIF === "1") {
+      const gifPath = path.join(platformDir, "transition.gif");
+      const gifResult = await generateCrossfadeGif(beforePath, afterPath, gifPath);
+      if (gifResult) {
+        transitionData = {
+          path: "transition.gif",
+          sizeBytes: gifResult.sizeBytes,
+          frameCount: gifResult.frameCount,
+          durationMs: gifResult.durationMs,
+          width: gifResult.width,
+          height: gifResult.height,
+          sha256: sha256File(gifPath),
+        };
+        transitionOutput = {
+          path: gifResult.path,
+          sizeBytes: gifResult.sizeBytes,
+          frameCount: gifResult.frameCount,
+          durationMs: gifResult.durationMs,
+          width: gifResult.width,
+          height: gifResult.height,
+        };
+        console.log(`[${spec.name}] Wrote ${gifPath}`);
+      }
+    }
+
     // Write per-platform manifest
     const socialManifest: SocialManifest = {
       schemaVersion: "1.0",
@@ -187,10 +226,13 @@ export async function runSocial(
         charCount: caption.length,
       },
     };
+    if (transitionData) {
+      socialManifest.transition = transitionData;
+    }
     const manifestOutputPath = path.join(platformDir, "manifest.json");
     fs.writeFileSync(manifestOutputPath, JSON.stringify(socialManifest, null, 2), "utf-8");
 
-    results.push({
+    const result: SocialOutput = {
       platform: spec.name,
       imagePath,
       captionPath,
@@ -198,7 +240,11 @@ export async function runSocial(
       imageHeight: imageResult.height,
       imageSizeBytes: imageResult.sizeBytes,
       captionLength: caption.length,
-    });
+    };
+    if (transitionOutput) {
+      result.transition = transitionOutput;
+    }
+    results.push(result);
 
     console.log(`[${spec.name}] Wrote ${imagePath}`);
     console.log(`[${spec.name}] Wrote ${captionPath}`);

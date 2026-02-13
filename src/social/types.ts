@@ -39,6 +39,15 @@ export interface SocialOutput {
   imageHeight: number;
   imageSizeBytes: number;
   captionLength: number;
+  /** Present only when GIF generation succeeded. */
+  transition?: {
+    path: string;
+    sizeBytes: number;
+    frameCount: number;
+    durationMs: number;
+    width: number;
+    height: number;
+  };
 }
 
 /** Adapter interface — each platform implements this. */
