@@ -7,3 +7,11 @@ coverage/
 jobs/*
 !jobs/_example/
 !jobs/_example/**
+
+# Database
+workshot.db
+workshot.db-wal
+workshot.db-shm
+
+# Secrets
+.env

@@ -2,52 +2,54 @@
 
 ## Project State
 
-WorkShot is a local CLI tool for before/after photo composition and caption generation for tree service businesses. TypeScript + Node.js + sharp. R1 scope: local pipeline only.
+WorkShot is a local CLI tool + Telegram bot for before/after photo composition and caption generation for tree service businesses. TypeScript + Node.js + sharp + grammY + SQLite.
 
-**Current phase:** Phase 6 COMPLETE — R1 Contract Freeze + Legacy Removal
-**Status:** All 6 R1 phases complete. Canonical-only contract.
+**R1:** COMPLETE (contract frozen). Local CLI pipeline.
+**R2:** COMPLETE. Telegram bot intake + SQLite database.
 
-### Phase 6 decisions
-- Legacy `--job` CLI flag removed (now returns "Unknown flag" error)
-- `meta.json` bridge removed — `job.json` is required for all jobs
-- `jobs/_example/` canonicalized with `job.json` (meta.json deleted)
-- `IngestResult.metaSource` narrowed to `"job.json"` only
-- `checkMetaJson()` and `makeDefaultJobJson()` removed from ingest.ts
-- `assertContainedIn` removed from index.ts (was only used by legacy --job)
-- 55 tests passing (35 CLI + 9 determinism + 11 seam regression)
+### R2 implementation
+- Telegram bot via grammY (long polling, no webhooks)
+- SQLite via better-sqlite3 (WAL mode, schema migrations)
+- State machine: idle → before_received → processing → idle
+- In-process pipeline (imports R1 modules directly, parity-tested against CLI)
+- Accepts both compressed photos and image documents (JPEG, PNG, WebP)
+- Non-image documents rejected with actionable message
+- DB job metadata synced on text updates during before_received (no drift)
+- Idempotency: UNIQUE(chat_id, message_id, direction) prevents duplicate processing
+- Crash recovery: reconcileOnStartup() sweeps stuck sessions before polling
+- 122 tests total (55 R1 + 67 bot)
 
 ### File map
 | File | Heat | Notes |
 |------|------|-------|
-| `src/index.ts` | COLD | Thin orchestration entrypoint (canonical only) |
-| `src/cli/parseArgs.ts` | COLD | CLI parsing: `run` and `validate` only |
-| `src/contracts/types.ts` | COLD | Shared types (frozen R1 contract) |
-| `src/pipeline/ingest.ts` | COLD | Validation primitives, job.json required |
-| `src/pipeline/manifest.ts` | COLD | Manifest writer |
-| `src/pipeline/compose.ts` | COLD | Image compositor, explicit PNG settings |
-| `src/pipeline/caption.ts` | COLD | Caption generator |
-| `src/lib/pathSafety.ts` | COLD | Path containment + filename safety |
-| `tests/cli.test.ts` | COLD | 35 integration tests |
-| `tests/determinism.test.ts` | COLD | Tier-1 + Tier-2 determinism (9 tests) |
-| `tests/seams.test.ts` | COLD | Boundary + legacy removal regression (11 tests) |
-| `tests/fixtures.ts` | COLD | Synthetic fixture generator |
-| `.github/workflows/ci.yml` | COLD | CI quality gates |
-| `package.json` | COLD | sharp pinned to 0.33.5 |
+| `src/bot/index.ts` | HOT | Bot entry point |
+| `src/bot/bot.ts` | HOT | grammY bot instance + middleware |
+| `src/bot/handlers/photo.ts` | HOT | Photo state machine (core logic) |
+| `src/bot/handlers/text.ts` | WARM | Text/service parsing |
+| `src/bot/handlers/commands.ts` | WARM | /start, /help, /status, /cancel |
+| `src/bot/services/pipelineRunner.ts` | WARM | In-process R1 pipeline |
+| `src/bot/services/jobCreator.ts` | WARM | Job folder + job.json creation |
+| `src/bot/services/photoDownloader.ts` | WARM | Telegram photo download + validation |
+| `src/bot/services/textParser.ts` | COLD | Service keyword matching |
+| `src/bot/db/` | WARM | SQLite schema, queries, connection |
+| `src/bot/config.ts` | COLD | .env config loader |
+| `src/bot/sessionTimeout.ts` | WARM | Stale session cleanup + crash recovery |
+| `src/bot/types.ts` | COLD | Bot-specific types |
+| `src/pipeline/*` | COLD | R1 pipeline modules (frozen) |
+| `src/contracts/*` | COLD | Shared types (frozen) |
 
 ## Governance
 
 - **YOU MUST** escalate architectural decisions to operator (Scott)
-- **YOU MUST** use `/spawn-agent` when spawning sub-agents for multi-step work
-- **IMPORTANT:** Use `/clear` between major tasks to reset context attention
-- **IMPORTANT:** R1 contract is frozen. Do not change CLI surface, schema, or output format without operator approval
+- **IMPORTANT:** R1 contract is frozen. Do not change CLI surface, schema, or output format
 - Authority: you may choose tooling, file layout, and routine implementation details
 - Stop: if you encounter a design ambiguity that affects the public contract, ask the operator
 
 ## References
 
-- @docs/FINAL_BUILD_PLAN.md — Phase details, implementation order, test strategy
-- @docs/AGENTIC_SYSTEM_DESIGN.md — Agent roles, communication protocol, prompt templates
-- @docs/OPUS_CRITIQUE.md — Critical review findings and resolutions
+- @docs/FINAL_BUILD_PLAN.md — R1 phase details
+- @docs/AGENTIC_SYSTEM_DESIGN.md — Agent roles and prompt templates
+- @docs/DASHBOARD_PLAN.md — Approved dashboard plan (deferred)
 
 ## Canary
 
