@@ -7,6 +7,7 @@ import { composeImage } from "./pipeline/compose";
 import { generateCaption } from "./pipeline/caption";
 import { generateManifest, writeManifest } from "./pipeline/manifest";
 import { assertResolvedContainedIn, PathEscapeError } from "./lib/pathSafety";
+import { runSocial, getAvailablePlatforms } from "./social";
 import type { Layout, IngestResult } from "./contracts";
 
 // --- Run Pipeline ---
@@ -117,6 +118,25 @@ function runValidate(jobDir: string): void {
   }
 }
 
+// --- Social Command ---
+
+async function runSocialCommand(jobDir: string, platforms: string[], all: boolean): Promise<void> {
+  const targetPlatforms = all ? getAvailablePlatforms() : platforms;
+
+  if (targetPlatforms.length === 0) {
+    console.error("Error: No platforms to generate for.");
+    process.exit(1);
+  }
+
+  try {
+    const results = await runSocial(jobDir, targetPlatforms);
+    console.log(`Done. Generated ${results.length} platform output(s).`);
+  } catch (err) {
+    console.error(`Error: ${(err as Error).message}`);
+    process.exit(1);
+  }
+}
+
 // --- Main ---
 
 async function main(): Promise<void> {
@@ -124,6 +144,11 @@ async function main(): Promise<void> {
 
   if (parsed.command === "validate") {
     runValidate(parsed.jobDir);
+    return;
+  }
+
+  if (parsed.command === "social") {
+    await runSocialCommand(parsed.jobDir, parsed.platforms, parsed.all);
     return;
   }
 

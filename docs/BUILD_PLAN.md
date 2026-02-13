@@ -69,14 +69,61 @@ Bring photos in automatically, but reuse the same local pipeline and folder stru
 - Photo ingestion into `before/` / `after/` (or an `inbox/` with later sorting rules).
 - Reuse Phase R1 pipeline unchanged: intake only prepares a job folder, then runs the same generator.
 
-## Phase R3 — Automation & Sharing
-Add automation where it saves time, and package outputs for real-world posting.
+## Phase R3 — Social Media Output Layer
+Package R1 pipeline output into platform-specific formats for real-world posting. Files only — no API posting, no auto-publishing.
 
-- Gemini automation (opt-in) for smarter caption options and/or photo grouping when the local rules aren’t enough.
-- Social-ready packaging:
-  - Variants per platform (square/portrait/landscape), consistent export settings.
-  - Bundles (zip/folder) containing composites + captions + a posting checklist.
-- Multi-platform output (files only at first): formats tailored for Instagram/Facebook/Google Business Profiles, without auto-posting unless it proves necessary.
+### R3 Contract (operator-approved 2026-02-12)
+- **CLI surface:** `workshot social <job_dir> --platform nextdoor [--platform facebook] [--all]`
+  - Extends existing CLI with a `social` subcommand (additive, `run`/`validate` unchanged)
+  - Requires R1 `run` to have completed (checks `output/manifest.json`)
+- **Output location:** `<job_dir>/output/social/<platform>/`
+  - R1 `output/` files are never modified
+  - Each platform gets its own subfolder: `image.jpg`, `caption.txt`, `manifest.json`
+- **Labels:** Same BEFORE/AFTER style as R1 (consistent branding)
+- **Image source:** Original before/after images resolved from R1 `manifest.json` → `inputs.mediaPairs[0]`
+- **Code location:** `src/social/` — new module, does not import from `src/pipeline/` internals
+  - Shared label-rendering logic extracted to `src/lib/labels.ts` (importable by both R1 and social)
+- **No new production npm dependencies** for R3.1 (devDeps for R&D scripts pre-date R3)
+
+### R3.1 — Nextdoor Static Export (MVP)
+Narrowest possible slice: one platform, static image only, center-crop, deterministic.
+
+**Scope:**
+- Platform adapter pattern: `PlatformAdapter` interface + registry
+- Nextdoor adapter: 1200x675 (16:9), JPEG q90, side-by-side layout, no hashtags
+- Center-crop both images to target aspect ratio (no Gemini smart-crop yet)
+- Deterministic caption from job metadata (template-based, same approach as R1)
+- Per-platform manifest in `output/social/nextdoor/manifest.json` (references R1 manifest, no fragmentation)
+
+**Files created:**
+- `src/lib/labels.ts` — shared SVG label rendering (extracted pattern, not duplicated)
+- `src/social/types.ts` — PlatformAdapter, PlatformSpec interfaces
+- `src/social/platforms/nextdoor.ts` — Nextdoor adapter
+- `src/social/composer.ts` — platform-aware image composition
+- `src/social/captionWriter.ts` — platform caption generation
+- `src/social/index.ts` — `runSocial()` entry point
+- `src/cli/parseArgs.ts` — add `social` command branch (existing commands untouched)
+- `src/index.ts` — add `social` handler (existing flow untouched)
+- `tests/social/**` — all new test files
+
+**Exit criteria (all automated in tests):**
+- `workshot social jobs/_example --platform nextdoor` produces `output/social/nextdoor/image.jpg`
+- Image is 1200x675, JPEG format, under 10MB
+- Caption is under 8192 chars, matches expected template output
+- All existing tests pass (zero R1/R2 regressions)
+- R1 `output/manifest.json`, `before_after.png`, `caption.generic.txt` unchanged (SHA256 verified)
+
+### R3.2 — Gemini Smart-Crop (future)
+Promote `scripts/smart-crop.ts` → `src/social/smartCrop.ts`. Center-crop fallback when no API key. Follow `docs/GEMINI_PROMPTING_PATTERNS.md`.
+
+### R3.3 — Additional Platforms (future)
+One at a time: Facebook → Instagram → Google Business → TikTok → YouTube.
+
+### R3.4 — Crossfade GIF (future)
+Promote `scripts/test-crossfade.ts` → `src/social/crossfade.ts` as optional artifact.
+
+### R3.5 — Bot Integration (future)
+Auto-generate social outputs after bot runs R1. Requires separate operator approval.
 
 ## Phase R4 — Production Hardening
 Make it reliable enough to run daily without babysitting.

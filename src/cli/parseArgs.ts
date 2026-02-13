@@ -14,7 +14,14 @@ export interface ValidateArgs {
   jobDir: string;
 }
 
-export type ParsedArgs = RunArgs | ValidateArgs;
+export interface SocialArgs {
+  command: "social";
+  jobDir: string;
+  platforms: string[];
+  all: boolean;
+}
+
+export type ParsedArgs = RunArgs | ValidateArgs | SocialArgs;
 
 // --- Constants ---
 
@@ -26,6 +33,7 @@ function printUsage(): void {
   console.error("Usage:");
   console.error("  workshot run <job_dir> [--layout side-by-side|stacked]");
   console.error("  workshot validate <job_dir>");
+  console.error("  workshot social <job_dir> --platform <name> [--platform <name>] [--all]");
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -85,6 +93,41 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
 
     return { command: "validate", jobDir };
+  }
+
+  // Canonical: social <job_dir> --platform <name> [--platform <name>] [--all]
+  if (firstArg === "social") {
+    if (args.length < 2 || args[1].startsWith("--")) {
+      console.error("Error: 'social' requires a job directory path.");
+      console.error("Usage: workshot social <job_dir> --platform <name> [--all]");
+      process.exit(1);
+    }
+    const jobDir = path.resolve(args[1]);
+    const platforms: string[] = [];
+    let all = false;
+
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--platform") {
+        if (i + 1 >= args.length || args[i + 1].startsWith("--")) {
+          console.error("Error: --platform requires a value");
+          process.exit(1);
+        }
+        platforms.push(args[++i]);
+      } else if (args[i] === "--all") {
+        all = true;
+      } else {
+        console.error(`Error: Unknown argument "${args[i]}"`);
+        process.exit(1);
+      }
+    }
+
+    if (!all && platforms.length === 0) {
+      console.error("Error: 'social' requires at least one --platform or --all.");
+      console.error("Usage: workshot social <job_dir> --platform <name> [--all]");
+      process.exit(1);
+    }
+
+    return { command: "social", jobDir, platforms, all };
   }
 
   // Unknown

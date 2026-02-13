@@ -34,6 +34,17 @@ node dist/index.js validate <job_dir>
 
 Checks that a job folder has the required structure (images, metadata) without running the pipeline.
 
+### Generate platform-specific social outputs
+
+```bash
+node dist/index.js social <job_dir> --platform nextdoor [--platform facebook] [--all]
+```
+
+Requires `workshot run` to have completed first (`output/manifest.json` must exist). Generates platform-optimized image, caption, and manifest in `<job_dir>/output/social/<platform>/`:
+- `image.jpg` — platform-sized composite (Nextdoor: 1200x675, JPEG q90)
+- `caption.txt` — platform-appropriate caption
+- `manifest.json` — per-platform output manifest referencing the R1 manifest
+
 ### Job folder structure
 
 ```
@@ -107,6 +118,8 @@ The bot reconciles stuck sessions on every startup. If the bot crashes during pr
 - `src/bot/db/` — SQLite database layer (schema, queries)
 - `src/bot/services/` — Bot services (photo download, job creation, pipeline runner)
 - `src/bot/handlers/` — Message handlers (photo, text, commands)
+- `src/social/` — Social media output layer (platform adapters, composer, caption)
+- `src/lib/` — Shared utilities (label rendering)
 - `jobs/` — Input photos (local only, not tracked except `_example/`)
 - `dist/` — Compiled output (local only, not tracked)
 - `tests/` — Integration tests
