@@ -28,10 +28,20 @@ export interface CropRegion {
   height: number;
 }
 
+/** Pixel coordinate (anchor point detected by Gemini). */
+export interface PixelPoint {
+  x: number;
+  y: number;
+}
+
 /** Result from smart-crop: crop regions for both images. */
 export interface SmartCropResult {
   before: CropRegion;
   after: CropRegion;
+  /** Trunk-base anchor in the before source image (optional, for debugging). */
+  beforeTrunkBase?: PixelPoint;
+  /** Trunk-base anchor in the after source image (optional, for debugging). */
+  afterTrunkBase?: PixelPoint;
   reasoning: string;
 }
 
@@ -39,7 +49,7 @@ export interface SmartCropResult {
 const MAX_ANALYSIS_EDGE = 1600;
 
 /** Gemini call timeout in milliseconds. */
-const GEMINI_TIMEOUT_MS = 8000;
+const GEMINI_TIMEOUT_MS = 25000;
 
 /**
  * Attempt smart-crop via Gemini vision analysis.
@@ -131,7 +141,10 @@ export async function getSmartCrop(
       return null;
     }
 
-    console.log(`[smart-crop] Gemini crop: before(${result.before.left},${result.before.top}) after(${result.after.left},${result.after.top}) — ${result.reasoning}`);
+    const trunkInfo = result.beforeTrunkBase && result.afterTrunkBase
+      ? ` trunk-base: before(${result.beforeTrunkBase.x},${result.beforeTrunkBase.y}) after(${result.afterTrunkBase.x},${result.afterTrunkBase.y})`
+      : "";
+    console.log(`[smart-crop] Gemini crop: before(${result.before.left},${result.before.top}) after(${result.after.left},${result.after.top})${trunkInfo} — ${result.reasoning}`);
     return result;
   } catch (err: any) {
     const msg = err?.message || String(err);
@@ -159,12 +172,17 @@ async function downscaleForAnalysis(
 }
 
 /**
- * Build the Gemini prompt for panel-crop analysis.
+ * Build the Gemini prompt for social panel-crop analysis.
  *
- * Unlike the crossfade script (which crops one image to match the other's
- * dimensions), this prompt asks Gemini to find the best crop region in
- * EACH image to fit a specific panel aspect ratio while keeping the
- * main subject (tree/work area) visible and well-positioned.
+ * Uses trunk-base anchoring: Gemini identifies the tree trunk base in both
+ * images and positions crop rectangles so trunk base lands at the same
+ * relative (x%, y%) position in each panel. This keeps the tree aligned
+ * across both panels of the composite.
+ *
+ * Both images are cropped to exactly pw x ph (unlike the crossfade script
+ * which only crops the before image to match the after's dimensions).
+ *
+ * Follows docs/GEMINI_PROMPTING_PATTERNS.md.
  */
 function buildPrompt(
   bw: number,
@@ -176,15 +194,20 @@ function buildPrompt(
 ): string {
   return `I have two photos of the same tree service job — a "before" photo (image 1, ${bw}x${bh} pixels) and an "after" photo (image 2, ${aw}x${ah} pixels).
 
-I need to crop EACH image to exactly ${pw}x${ph} pixels for a side-by-side social media composite. I want the main subject (the tree or work area) to be well-framed and visible in both crops.
+I need to crop EACH image to exactly ${pw}x${ph} pixels for a side-by-side social media composite. The work area must be aligned between both panels so the before/after comparison is visually clear.
+
+Step 1: Identify the primary anchor point in BOTH images. If a tree is visible, use the tree trunk base (where the trunk meets the ground). If no tree is visible (e.g., stump removal, landscaping, cleanup), use the most prominent fixed feature in the work area (e.g., stump center, fence post, driveway edge). Record the pixel coordinates of this anchor in each source image.
+
+Step 2: Position each crop rectangle so the anchor lands at the SAME relative position (x%, y%) within each ${pw}x${ph} panel. This ensures the work area appears at the same spot in both panels.
 
 Rules:
 1. Each crop must be EXACTLY ${pw}x${ph} pixels
-2. The main subject (tree, stump, or work area) must be fully visible in both crops — do not clip the subject
-3. Position each crop so the main subject is centered or slightly offset for visual balance
-4. If the tree/subject is tall and narrow, prefer a crop that captures the full height
-5. Fixed landmarks (houses, fences, driveways) should be in similar positions in both crops when possible
-6. Each crop rectangle must stay within its source image boundaries
+2. The primary subject (tree, stump, or work area) must be fully visible in both crops. For trees: show from trunk base to canopy top. Do not clip the subject
+3. If the full subject cannot fit within ${pw}x${ph}, maximize visibility: prioritize showing the anchor point and as much of the subject as possible, and explain the compromise in your reasoning
+4. The anchor point must be at the same relative (x%, y%) position in both crop rectangles
+5. The anchor point must be INSIDE its crop rectangle (not outside it)
+6. Fixed landmarks (house roofline, fences, driveways, other trees) should align as closely as possible between the two crops
+7. Each crop rectangle must stay within its source image boundaries
 
 Before image (image 1) dimensions: ${bw}x${bh}
 After image (image 2) dimensions: ${aw}x${ah}
@@ -193,20 +216,60 @@ Target crop size: ${pw}x${ph}
 Boundary constraints:
 - Before crop: left >= 0, top >= 0, left + ${pw} <= ${bw}, top + ${ph} <= ${bh}
 - After crop: left >= 0, top >= 0, left + ${pw} <= ${aw}, top + ${ph} <= ${ah}
+- Before anchor must be inside before crop: before_trunk_base.x >= before.left AND before_trunk_base.x < before.left + ${pw} AND before_trunk_base.y >= before.top AND before_trunk_base.y < before.top + ${ph}
+- After anchor must be inside after crop: same logic for after_trunk_base and after crop
 
 Return ONLY valid JSON in this exact format, no other text:
 {
+  "before_trunk_base": { "x": 0, "y": 0 },
+  "after_trunk_base": { "x": 0, "y": 0 },
   "before": { "left": 0, "top": 0, "width": ${pw}, "height": ${ph} },
   "after": { "left": 0, "top": 0, "width": ${pw}, "height": ${ph} },
-  "reasoning": "brief explanation of subject position and crop choice"
+  "reasoning": "brief explanation of anchor choice, position, and crop alignment"
 }
 
-Values must be non-negative integers. Width must be exactly ${pw} and height must be exactly ${ph} for both crops.`;
+Values must be non-negative integers. Width must be exactly ${pw} and height must be exactly ${ph} for both crops. Anchor coordinates must be within the source image AND inside the returned crop rectangle.`;
+}
+
+/**
+ * Validate a PixelPoint: non-negative integer coordinates within bounds.
+ * Returns validated point or null if invalid.
+ */
+function validatePixelPoint(
+  point: any,
+  maxX: number,
+  maxY: number
+): PixelPoint | null {
+  if (!point || typeof point !== "object") return null;
+  const { x, y } = point;
+  if (typeof x !== "number" || !Number.isInteger(x) || x < 0 || x >= maxX) return null;
+  if (typeof y !== "number" || !Number.isInteger(y) || y < 0 || y >= maxY) return null;
+  return { x, y };
+}
+
+/**
+ * Check whether a pixel point falls inside a crop rectangle.
+ * Uses exclusive upper bounds (point at left+width or top+height is outside).
+ */
+function isPointInsideCrop(point: PixelPoint, crop: { left: number; top: number; width: number; height: number }): boolean {
+  return (
+    point.x >= crop.left &&
+    point.x < crop.left + crop.width &&
+    point.y >= crop.top &&
+    point.y < crop.top + crop.height
+  );
 }
 
 /**
  * Parse Gemini response text and validate crop regions.
  * Returns null if parsing or validation fails.
+ *
+ * Trunk-base fields (before_trunk_base, after_trunk_base) are optional:
+ * - If present and valid (integer, in source bounds, inside crop rect),
+ *   included in result for debugging/logging.
+ * - If present but malformed (wrong type, out of bounds, outside crop),
+ *   entire result is rejected (Gemini produced inconsistent output).
+ * - If absent, result is accepted without them (backward-compatible).
  */
 export function parseAndValidate(
   text: string,
@@ -252,11 +315,36 @@ export function parseAndValidate(
   if (bc.left + bc.width > bw || bc.top + bc.height > bh) return null;
   if (ac.left + ac.width > aw || ac.top + ac.height > ah) return null;
 
-  return {
+  // Validate trunk-base fields (optional but must be valid if present).
+  // Two checks: (1) within source image bounds, (2) within crop rectangle.
+  // An anchor outside the crop means Gemini's alignment is wrong.
+  let beforeTrunkBase: PixelPoint | undefined;
+  let afterTrunkBase: PixelPoint | undefined;
+
+  if (parsed.before_trunk_base !== undefined) {
+    const validated = validatePixelPoint(parsed.before_trunk_base, bw, bh);
+    if (!validated) return null; // Present but malformed → reject
+    if (!isPointInsideCrop(validated, bc)) return null; // Anchor outside crop → reject
+    beforeTrunkBase = validated;
+  }
+
+  if (parsed.after_trunk_base !== undefined) {
+    const validated = validatePixelPoint(parsed.after_trunk_base, aw, ah);
+    if (!validated) return null; // Present but malformed → reject
+    if (!isPointInsideCrop(validated, ac)) return null; // Anchor outside crop → reject
+    afterTrunkBase = validated;
+  }
+
+  const result: SmartCropResult = {
     before: { left: bc.left, top: bc.top, width: bc.width, height: bc.height },
     after: { left: ac.left, top: ac.top, width: ac.width, height: ac.height },
     reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
   };
+
+  if (beforeTrunkBase) result.beforeTrunkBase = beforeTrunkBase;
+  if (afterTrunkBase) result.afterTrunkBase = afterTrunkBase;
+
+  return result;
 }
 
 /**

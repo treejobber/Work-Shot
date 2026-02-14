@@ -190,6 +190,222 @@ describe("parseAndValidate", () => {
     expect(result).not.toBeNull();
     expect(result!.reasoning).toBe("");
   });
+
+  // ---- Trunk-base field tests ----
+
+  it("accepts valid trunk-base fields and includes them in result", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: 500, y: 700 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 100, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk aligned",
+    });
+    const result = parseAndValidate(json, bw, bh, aw, ah, pw, ph);
+    expect(result).not.toBeNull();
+    expect(result!.beforeTrunkBase).toEqual({ x: 500, y: 700 });
+    expect(result!.afterTrunkBase).toEqual({ x: 400, y: 600 });
+  });
+
+  it("accepts zero-origin trunk-base coordinates", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: 0, y: 0 },
+      after_trunk_base: { x: 0, y: 0 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "corner trunk",
+    });
+    const result = parseAndValidate(json, bw, bh, aw, ah, pw, ph);
+    expect(result).not.toBeNull();
+    expect(result!.beforeTrunkBase).toEqual({ x: 0, y: 0 });
+    expect(result!.afterTrunkBase).toEqual({ x: 0, y: 0 });
+  });
+
+  it("backward-compatible: missing trunk-base fields still accepted", () => {
+    const json = JSON.stringify({
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "no trunk base",
+    });
+    const result = parseAndValidate(json, bw, bh, aw, ah, pw, ph);
+    expect(result).not.toBeNull();
+    expect(result!.beforeTrunkBase).toBeUndefined();
+    expect(result!.afterTrunkBase).toBeUndefined();
+  });
+
+  it("rejects before_trunk_base out of source image bounds", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: 1200, y: 500 }, // x >= bw (1200)
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "oob trunk",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects after_trunk_base out of source image bounds", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: 500, y: 700 },
+      after_trunk_base: { x: 400, y: 800 }, // y >= ah (800)
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "oob trunk",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base with negative coordinates", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: -1, y: 500 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "negative trunk",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base with non-integer coordinates", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: 500.5, y: 700 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "float trunk",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base with string coordinates", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: "500", y: 700 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "string trunk",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base with missing y field", () => {
+    const json = JSON.stringify({
+      before_trunk_base: { x: 500 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "missing y",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base that is not an object", () => {
+    const json = JSON.stringify({
+      before_trunk_base: "not an object",
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 0, top: 0, width: 600, height: 675 },
+      after: { left: 0, top: 0, width: 600, height: 675 },
+      reasoning: "bad type",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  // ---- Trunk-base crop-rectangle containment tests ----
+
+  it("rejects before_trunk_base outside before crop rectangle (left of crop)", () => {
+    // Crop: left=200, top=50, 600x675 → x range [200, 800)
+    // Trunk base x=100 is left of crop
+    const json = JSON.stringify({
+      before_trunk_base: { x: 100, y: 400 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 200, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk left of crop",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects before_trunk_base outside before crop rectangle (above crop)", () => {
+    // Crop: left=100, top=200, 600x675 → y range [200, 875)
+    // Trunk base y=100 is above crop
+    const json = JSON.stringify({
+      before_trunk_base: { x: 400, y: 100 },
+      after_trunk_base: { x: 400, y: 600 },
+      before: { left: 100, top: 200, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk above crop",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects after_trunk_base outside after crop rectangle (right of crop)", () => {
+    // After crop: left=50, top=25, 600x675 → x range [50, 650)
+    // Trunk base x=700 is right of crop
+    const json = JSON.stringify({
+      before_trunk_base: { x: 500, y: 400 },
+      after_trunk_base: { x: 700, y: 400 },
+      before: { left: 100, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk right of crop",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base at exact crop right boundary (exclusive)", () => {
+    // Before crop: left=100, top=50, 600x675 → x range [100, 700)
+    // Trunk base x=700 is at the exclusive boundary
+    const json = JSON.stringify({
+      before_trunk_base: { x: 700, y: 400 },
+      after_trunk_base: { x: 400, y: 400 },
+      before: { left: 100, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk at crop edge",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("rejects trunk-base at exact crop bottom boundary (exclusive)", () => {
+    // Before crop: left=100, top=50, 600x675 → y range [50, 725)
+    // Trunk base y=725 is at the exclusive boundary
+    const json = JSON.stringify({
+      before_trunk_base: { x: 400, y: 725 },
+      after_trunk_base: { x: 400, y: 400 },
+      before: { left: 100, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk at crop bottom edge",
+    });
+    expect(parseAndValidate(json, bw, bh, aw, ah, pw, ph)).toBeNull();
+  });
+
+  it("accepts trunk-base at crop left/top boundary (inclusive)", () => {
+    // Before crop: left=100, top=50, 600x675
+    // Trunk base (100, 50) is at the inclusive boundary
+    const json = JSON.stringify({
+      before_trunk_base: { x: 100, y: 50 },
+      after_trunk_base: { x: 50, y: 25 },
+      before: { left: 100, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk at crop origin",
+    });
+    const result = parseAndValidate(json, bw, bh, aw, ah, pw, ph);
+    expect(result).not.toBeNull();
+    expect(result!.beforeTrunkBase).toEqual({ x: 100, y: 50 });
+    expect(result!.afterTrunkBase).toEqual({ x: 50, y: 25 });
+  });
+
+  it("accepts trunk-base one pixel inside crop boundary", () => {
+    // Before crop: left=100, top=50, 600x675 → max valid: x=699, y=724
+    const json = JSON.stringify({
+      before_trunk_base: { x: 699, y: 724 },
+      after_trunk_base: { x: 649, y: 699 },
+      before: { left: 100, top: 50, width: 600, height: 675 },
+      after: { left: 50, top: 25, width: 600, height: 675 },
+      reasoning: "trunk at max valid position",
+    });
+    const result = parseAndValidate(json, bw, bh, aw, ah, pw, ph);
+    expect(result).not.toBeNull();
+    expect(result!.beforeTrunkBase).toEqual({ x: 699, y: 724 });
+  });
 });
 
 // ---- getSmartCrop (no API key) ----
