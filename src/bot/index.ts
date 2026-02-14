@@ -3,12 +3,14 @@ import { openDatabase } from "./db/connection";
 import { ensureSchema } from "./db/schema";
 import { createBot } from "./bot";
 import { reconcileOnStartup, startSessionTimeoutChecker } from "./sessionTimeout";
+import { validateSocialPlatforms } from "./services/socialRunner";
 
 async function main(): Promise<void> {
   console.log("[workshot-bot] Starting...");
 
   // 1. Load configuration
   const config = loadConfig();
+  validateSocialPlatforms(config.socialPlatforms);
   console.log("[workshot-bot] Config loaded.");
 
   // 2. Open database and ensure schema
@@ -55,6 +57,13 @@ async function main(): Promise<void> {
     );
   } else {
     console.log("[workshot-bot] All chats authorized (no restriction).");
+  }
+  if (config.socialPlatforms.length > 0) {
+    console.log(
+      `[workshot-bot] Auto social: ${config.socialPlatforms.join(", ")}`
+    );
+  } else {
+    console.log("[workshot-bot] Auto social: disabled");
   }
 
   bot.start();

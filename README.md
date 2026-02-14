@@ -110,6 +110,10 @@ Photos can be sent as regular Telegram photos (compressed) or as image documents
 - `/status` — Check current session state
 - `/cancel` — Cancel the current job
 
+### Auto social generation (optional)
+
+The bot can automatically generate platform-specific social outputs after each successful pipeline run. Set `WORKSHOT_BOT_SOCIAL_PLATFORMS` in `.env` to a comma-separated list of platforms (e.g., `nextdoor,facebook`). If unset or empty, social generation is disabled and the bot behaves exactly as before. Social generation runs after the composite is sent back to the user — it never blocks the main result. If social generation fails, the job stays `processed` and a warning is logged.
+
 ### Crash recovery
 
 The bot reconciles stuck sessions on every startup. If the bot crashes during processing, restarting it will automatically recover.

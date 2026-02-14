@@ -15,6 +15,8 @@ export interface BotConfig {
   jobsDir: string;
   /** Session timeout in minutes (default: 30) */
   sessionTimeoutMinutes: number;
+  /** Platform names for auto social generation after pipeline (empty = disabled) */
+  socialPlatforms: string[];
 }
 
 export function loadConfig(): BotConfig {
@@ -55,11 +57,18 @@ export function loadConfig(): BotConfig {
     );
   }
 
+  const socialPlatformsRaw = process.env.WORKSHOT_BOT_SOCIAL_PLATFORMS ?? "";
+  const socialPlatforms = socialPlatformsRaw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+
   return {
     botToken,
     authorizedChats,
     dbPath,
     jobsDir,
     sessionTimeoutMinutes,
+    socialPlatforms,
   };
 }

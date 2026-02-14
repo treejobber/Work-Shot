@@ -14,6 +14,7 @@ import {
 import { getLargestPhotoFileId, downloadAndValidatePhoto } from "../services/photoDownloader";
 import { createJobFolder, writeJobJson } from "../services/jobCreator";
 import { runPipeline } from "../services/pipelineRunner";
+import { runBotSocial } from "../services/socialRunner";
 import { parseServiceText } from "../services/textParser";
 import type { BotConfig } from "../config";
 
@@ -267,6 +268,18 @@ async function handleAfterPhoto(
         "Pipeline completed but I couldn't send the image. " +
           `Check the output folder: ${job.job_dir}/output/`
       );
+    }
+
+    // Auto social generation (runs after user gets their result)
+    if (config.socialPlatforms.length > 0) {
+      const socialResult = await runBotSocial(job.job_dir, config.socialPlatforms);
+      if (socialResult.success && socialResult.outputs && socialResult.outputs.length > 0) {
+        console.log(
+          `[bot-social] Generated social outputs for ${job.job_id}: ` +
+            socialResult.outputs.map((o) => o.platform).join(", ")
+        );
+      }
+      // Failure is already logged inside runBotSocial — don't change job status
     }
   } else {
     updateJobStatus(db, jobId, "error", result.error);
