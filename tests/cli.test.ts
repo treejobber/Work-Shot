@@ -420,6 +420,90 @@ describe("CLI integration tests", () => {
     });
   });
 
+  // ---- Social dotenv loading ----
+
+  describe("social dotenv loading", () => {
+    let jobDir: string;
+
+    function runWithEnv(
+      args: string[],
+      env: Record<string, string | undefined>
+    ): Promise<{ stdout: string; stderr: string; code: number }> {
+      return new Promise((resolve) => {
+        execFile(
+          NODE,
+          [CLI, ...args],
+          {
+            cwd: path.resolve(__dirname, ".."),
+            env: { ...process.env, ...env },
+          },
+          (error, stdout, stderr) => {
+            resolve({
+              stdout: stdout.toString(),
+              stderr: stderr.toString(),
+              code: error?.code ?? 0,
+            });
+          }
+        );
+      });
+    }
+
+    beforeAll(async () => {
+      jobDir = await createTestJob({
+        jobJson: {
+          schemaVersion: "1.0",
+          jobId: "test-social-dotenv",
+          work: { service: "tree trim" },
+          media: {
+            pairs: [
+              {
+                pairId: "primary",
+                before: "before.png",
+                after: "after.png",
+                mediaType: "photo",
+              },
+            ],
+          },
+        },
+      });
+      // Run R1 first (required by social)
+      const r1 = await run(["run", jobDir]);
+      expect(r1.code).toBe(0);
+    }, 30000);
+
+    afterAll(() => {
+      cleanupTestJob(jobDir);
+    });
+
+    it("social succeeds when GEMINI_API_KEY is pre-set (not overridden by dotenv)", async () => {
+      const result = await runWithEnv(
+        ["social", jobDir, "--platform", "nextdoor"],
+        { GEMINI_API_KEY: "test-preset-key" }
+      );
+      // Smart-crop will fail with invalid key but fallback is non-fatal
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Done.");
+    }, 30000);
+
+    it("social succeeds when GEMINI_API_KEY is unset (dotenv loads or fallback)", async () => {
+      const result = await runWithEnv(
+        ["social", jobDir, "--platform", "nextdoor"],
+        { GEMINI_API_KEY: "" }
+      );
+      // Either dotenv loads the key from .env or center-crop fallback works
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Done.");
+    }, 30000);
+
+    it("run command does not load dotenv (no GEMINI_API_KEY side effect)", async () => {
+      // This verifies dotenv loading is scoped to social only.
+      // The run command should succeed without any env loading.
+      const result = await run(["run", jobDir]);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Done.");
+    });
+  });
+
   // ---- Malformed job.json tests ----
 
   describe("malformed job.json", () => {

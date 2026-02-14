@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
+import * as dotenv from "dotenv";
 import sharp from "sharp";
 import { parseArgs } from "./cli/parseArgs";
 import { ingestJob, validateJob } from "./pipeline/ingest";
@@ -148,6 +149,9 @@ async function main(): Promise<void> {
   }
 
   if (parsed.command === "social") {
+    // Load .env for GEMINI_API_KEY (smart-crop) without overriding existing env vars.
+    // Missing .env or missing key is non-fatal — smart-crop falls back to center-crop.
+    dotenv.config({ path: path.resolve(__dirname, "../.env"), override: false });
     await runSocialCommand(parsed.jobDir, parsed.platforms, parsed.all);
     return;
   }
